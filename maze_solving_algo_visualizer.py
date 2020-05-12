@@ -16,6 +16,7 @@ END_SPOT_COLOR = (64, 219, 100)
 OBSTACLE_SPOT_COLOR = (8, 8, 8)
 SEARCH_SPOT_COLOR = (2, 168, 214)
 BT_COLOR = (255, 64, 0)
+A_STAR_COLOR = (63, 101, 204)
 
 # printing instructions
 print("\nHey bro/sis, here is the way I set this thing up:")
@@ -35,7 +36,7 @@ end_spot_pos_x = int(input("Enter x position of the goal spot: "))
 end_spot_pos_y = int(input("Enter y position of the goal spot: "))
 
 # getting input for the desired search algorithm
-print("1. BFS or 2. DFS")
+print("1. BFS or 2. DFS or 3. A*")
 search_algo = int(input("Press the number associated with your desired algo :) "))
 
 # cycle iter for pausing the simulation
@@ -65,6 +66,12 @@ class Spot:
             self.pos_y = 0
 
         self.color = color
+        # scores (g, h, f)
+        self.g_score = 0
+        self.h_score = 0
+        self.f_score = 0
+        # previous spot
+        self.previous = None
 
     def draw(self):
         """this method will draw the spot on the grid"""
@@ -72,6 +79,15 @@ class Spot:
 
     def get_coord(self):
         return self.pos_x, self.pos_y
+
+    def __repr__(self):
+        return '(' + str(self.pos_x) + ',' + str(self.pos_y) + ')'
+
+    def __eq__(self, other):
+        return isinstance(other, Spot) and (other.pos_x == self.pos_x and other.pos_y == self.pos_y)
+
+    def __ne__(self, other):
+        return not(isinstance(other, Spot)) or (other.pos_x != self.pos_x or other.pos_y != self.pos_y)
 
 
 # drawing grid
@@ -184,6 +200,36 @@ def back_track(curr_x, curr_y):
         final_solutions.append(solutions[curr_x, curr_y])
 
 
+def valid_places_to_go_a_star(current_spot_pos, obstacle_list):
+    valid_places = []
+
+    right_of_curr_coord = (current_spot_pos[0] + 20, current_spot_pos[1])
+    left_of_curr_coord = (current_spot_pos[0] - 20, current_spot_pos[1])
+    top_of_curr_coord = (current_spot_pos[0], current_spot_pos[1] - 20)
+    bottom_of_curr_coord = (current_spot_pos[0], current_spot_pos[1] + 20)
+
+    if (left_of_curr_coord not in obstacle_list) \
+            and (left_of_curr_coord[0] >= 0) and (left_of_curr_coord[0] <= 680) and (left_of_curr_coord[1] >= 0) \
+            and (left_of_curr_coord[1] <= 580):
+        valid_places.append(Spot(left_of_curr_coord[0], left_of_curr_coord[1]))
+
+    if (right_of_curr_coord not in obstacle_list) \
+            and (right_of_curr_coord[0] >= 0) and (right_of_curr_coord[0] <= 680) and (right_of_curr_coord[1] >= 0) \
+            and (right_of_curr_coord[1] <= 580):
+        valid_places.append(Spot(right_of_curr_coord[0], right_of_curr_coord[1]))
+
+    if (top_of_curr_coord not in obstacle_list) \
+            and (top_of_curr_coord[0] >= 0) and (top_of_curr_coord[0] <= 680) and (top_of_curr_coord[1] >= 0) \
+            and (top_of_curr_coord[1] <= 580):
+        valid_places.append(Spot(top_of_curr_coord[0], top_of_curr_coord[1]))
+
+    if (bottom_of_curr_coord not in obstacle_list) \
+            and (bottom_of_curr_coord[0] >= 0) and (bottom_of_curr_coord[0] <= 680) and (bottom_of_curr_coord[1] >= 0) \
+            and (bottom_of_curr_coord[1] <= 580):
+        valid_places.append(Spot(bottom_of_curr_coord[0], bottom_of_curr_coord[1]))
+    return valid_places
+
+
 # We need 2 spots in the beginning, one start spot and one end spot
 start_spot = Spot(start_spot_pos_x * 20, start_spot_pos_y * 20, color=START_SPOT_COLOR)
 end_spot = Spot(end_spot_pos_x * 20, end_spot_pos_y * 20, color=END_SPOT_COLOR)
@@ -226,6 +272,21 @@ cleared_list = []
 # initializing an index counter to back track into prev. spots - for DFS
 i = -2
 
+# final solution DFS
+final_sol = []
+
+# explored spots (A*)
+closed_list = []
+
+# unexplored spots (A*)
+open_list = [start_spot]  # placing the starting spot
+
+# solution path (A*)
+path = []
+
+# A* goal reached boolean
+goal_reached = False
+
 # initializing pause string which will be checked for pausing and resuming the game
 is_pause = ""
 
@@ -235,6 +296,8 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+            print("\nThe shortest path found was %i units long :)" % len(final_solutions))
+            print(solutions)
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE:
                 is_pause = next(pause)
@@ -272,7 +335,6 @@ while running:
                 """this will occur when the frontier list will become empty and there will be no frontier[0], 
                 meaning the target spot could not be found."""
                 running = False
-                print("\nThe shortest path found was %i units long :)" % len(final_solutions))
 
         elif search_algo == 2:
             if not done_exploring:
@@ -291,14 +353,66 @@ while running:
                                  color=BG_COLOR).draw()
                             current_search_spot_pos = visited_spots[i]
                             visited_spots.append(current_search_spot_pos)
+
                         else:
                             visited_spots.pop()
                             current_search_spot_pos = visited_spots[visited_spots.index(visited_spots[-1]) - 1]
                             visited_spots.append(current_search_spot_pos)
+
                         i -= 2
+
                 else:
                     done_exploring = True
+
+        elif search_algo == 3:
+            if not goal_reached:
+                if len(open_list) != 0:
+                    # finding the spot with the lowest f score in the open list
+                    sorted_open_list_spots_f_scores = sorted(open_list, key=lambda n: n.f_score)
+                    q = sorted_open_list_spots_f_scores[0]  # spot with the lowest f score
+                    open_list.remove(q)
+                    # generating q's neighbors
+                    valid_places = valid_places_to_go_a_star((q.pos_x, q.pos_y), obstacle_spots)
+                    for neighbor in valid_places:
+                        if neighbor == end_spot:
+                            neighbor.previous = q
+                            print("Goal was reached!")
+                            temp = neighbor
+                            while temp.previous is not None:
+                                path.append(temp.previous)
+                                temp = temp.previous
+                            goal_reached = True
+
+                        else:
+                            neighbor.g_score = q.g_score + 1
+                            neighbor.h_score = (abs(neighbor.pos_x - end_spot.pos_x) +
+                                                abs(neighbor.pos_y - end_spot.pos_y))
+                            neighbor.f_score = neighbor.g_score + neighbor.h_score
+                            neighbor.previous = q
+
+                            if neighbor in open_list:
+                                indx = open_list.index(neighbor)
+                                if open_list[indx].f_score < neighbor.f_score:
+                                    continue
+
+                            elif neighbor in closed_list:
+                                indx = closed_list.index(neighbor)
+                                if closed_list[indx].f_score < neighbor.f_score:
+                                    continue
+
+                            else:
+                                open_list.append(neighbor)
+
+                    if q not in closed_list:
+                        closed_list.append(q)
+                        q.draw()
+            else:
+                for p in path:
+                    if p is not start_spot:
+                        Spot(p.pos_x, p.pos_y, color=A_STAR_COLOR).draw()
+                if not once:
+                    print("The length of the shortest path found was " + str(len(path)) + " units long!")
+                    once = True
+
     # updating pygame
     pygame.display.update()
-
-
